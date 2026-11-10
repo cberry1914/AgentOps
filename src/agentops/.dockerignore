@@ -1,0 +1,72 @@
+
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials
+credentials.*
+secrets/
+secrets.json
+
+# Python environments and caches
+.venv/
+.venv*/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Version control and IDE files
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# AgentOps task workspaces
+workspaces/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Node dependencies
+node_modules/
+
+# Terraform state and credentials
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Databases and local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Backups and archives
+*.bak
+*.backup
+*.zip
+*.tar
+*.gz
+*.7z
+
+# Operating system files
+.DS_Store
+Thumbs.db

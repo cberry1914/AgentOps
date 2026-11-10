@@ -1,0 +1,18 @@
+
+# Multi-agent workflow orchestration
+langgraph
+langchain-core
+langchain-ollama
+
+# API and web dashboard
+fastapi
+uvicorn[standard]
+
+# Configuration and data validation
+pydantic
+pydantic-settings
+python-dotenv
+
+# Testing and API validation
+pytest
+httpx

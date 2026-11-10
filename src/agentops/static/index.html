@@ -1,0 +1,1167 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentOps | Multi-Agent Development Platform</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            --background: #0b1020;
+            --surface: #131c30;
+            --surface-light: #1b2941;
+            --border: #293954;
+            --text: #e7edf7;
+            --muted: #9aabc2;
+            --accent: #60a5fa;
+            --green: #34d399;
+            --yellow: #fbbf24;
+            --red: #fb7185;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--background);
+            color: var(--text);
+            font-family: Inter, system-ui, sans-serif;
+        }
+
+        button, input, textarea, select { font: inherit; }
+        button { cursor: pointer; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .header {
+            padding: 22px 5%;
+            border-bottom: 1px solid var(--border);
+            background: #10182a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            font-size: 23px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+
+        .brand span { color: var(--accent); }
+
+        .header-subtitle {
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .connection { color: var(--yellow); font-size: 13px; }
+
+        .container {
+            width: min(1200px, 92%);
+            margin: 32px auto;
+        }
+
+        .section-title { font-size: 19px; margin: 0 0 16px; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 22px;
+        }
+
+        .task-form { display: grid; gap: 15px; }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        textarea, select {
+            width: 100%;
+            color: var(--text);
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        textarea { min-height: 135px; resize: vertical; }
+        select { max-width: 180px; }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .primary-button, .cancel-button, .secondary-button {
+            border: 0;
+            border-radius: 8px;
+            padding: 11px 18px;
+            font-weight: 700;
+        }
+
+        .primary-button { background: var(--accent); color: #081426; }
+        .cancel-button { background: #512332; color: #fecdd3; }
+
+        .secondary-button {
+            background: var(--surface-light);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 12px;
+            background: var(--background);
+            border-radius: 20px;
+            overflow: hidden;
+            margin: 16px 0;
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s ease;
+        }
+
+        .progress-label { font-size: 28px; font-weight: 800; }
+        .muted { color: var(--muted); }
+
+        .small-text {
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+        }
+
+        .agent-card {
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            min-width: 0;
+        }
+
+        .agent-name { font-weight: 700; margin-bottom: 9px; }
+        .agent-status { font-size: 12px; color: var(--muted); }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            margin-right: 6px;
+        }
+
+        .status-running { background: var(--yellow); }
+        .status-completed { background: var(--green); }
+        .status-failed { background: var(--red); }
+        .status-pending { background: var(--muted); }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .result-panel {
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 17px;
+            min-width: 0;
+        }
+
+        .result-panel h3 { font-size: 15px; margin: 0 0 12px; }
+
+        .result-content {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.65;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .history-entry {
+            border-left: 2px solid var(--accent);
+            padding: 4px 0 12px 14px;
+            margin-left: 5px;
+        }
+
+        .history-title { font-weight: 700; font-size: 13px; }
+
+        .history-details {
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 4px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .finding {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .finding-severity {
+            font-size: 11px;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+
+        .severity-critical, .severity-high { color: var(--red); }
+        .severity-medium { color: var(--yellow); }
+        .severity-low, .severity-info { color: var(--green); }
+
+        .empty-state { color: var(--muted); font-size: 13px; }
+        .task-list { display: grid; gap: 10px; }
+
+        .task-list-item {
+            width: 100%;
+            text-align: left;
+            color: var(--text);
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 13px;
+        }
+
+        .task-list-item:hover, .task-list-item.selected {
+            border-color: var(--accent);
+        }
+
+        .task-list-title {
+            font-size: 13px;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .task-list-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 7px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .task-id {
+            font-family: monospace;
+            overflow-wrap: anywhere;
+            font-size: 12px;
+        }
+
+        .notice {
+            margin-top: 12px;
+            color: var(--yellow);
+            font-size: 13px;
+            white-space: pre-wrap;
+        }
+
+        .status-text { font-weight: 700; }
+        .status-text.completed { color: var(--green); }
+        .status-text.failed { color: var(--red); }
+        .status-text.running { color: var(--yellow); }
+
+        @media (max-width: 800px) {
+            .agent-grid { grid-template-columns: repeat(2, 1fr); }
+            .results-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 480px) {
+            .agent-grid { grid-template-columns: 1fr; }
+            .card { padding: 16px; }
+        }
+    </style>
+</head>
+
+<body>
+
+<header class="header">
+    <div>
+        <div class="brand">AGENT<span>OPS</span></div>
+        <div class="header-subtitle">Multi-Agent AI Development Platform</div>
+    </div>
+    <div class="connection" id="connectionStatus">Checking API connection...</div>
+</header>
+
+<main class="container">
+
+    <section class="card">
+        <h2 class="section-title">Submit Development Task</h2>
+
+        <form class="task-form" id="taskForm">
+            <div>
+                <label for="taskInput">Development Requirements</label>
+                <textarea
+                    id="taskInput"
+                    maxlength="20000"
+                    placeholder="Describe the application, feature, bug fix, or development task you want AgentOps to complete..."
+                    required
+                ></textarea>
+            </div>
+
+            <div>
+                <label for="maxRetries">Maximum Correction Attempts</label>
+                <select id="maxRetries">
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                </select>
+            </div>
+
+            <div class="form-actions">
+                <button class="primary-button" id="submitButton" type="submit">
+                    Start Development
+                </button>
+                <button class="cancel-button" id="cancelButton" type="button" disabled>
+                    Cancel Task
+                </button>
+            </div>
+
+            <div id="formMessage" class="notice"></div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="progress-header">
+            <h2 class="section-title">Task History</h2>
+            <button class="secondary-button" id="refreshTasksButton" type="button">
+                Refresh Tasks
+            </button>
+        </div>
+        <div id="taskList" class="task-list">
+            <div class="empty-state">Loading tasks...</div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="progress-header">
+            <div>
+                <h2 class="section-title">Workflow Progress</h2>
+                <div class="muted" id="workflowStage">
+                    Waiting for a development task.
+                </div>
+            </div>
+            <div class="progress-label" id="progressPercentage">0%</div>
+        </div>
+
+        <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="muted small-text">
+            API Task ID: <span class="task-id" id="taskId">None</span>
+        </div>
+
+        <div class="muted" style="margin-top: 8px;">
+            Current Agent: <strong id="currentAgent">None</strong>
+        </div>
+
+        <div class="muted" style="margin-top: 8px;">
+            Workflow Status: <strong id="workflowStatus">IDLE</strong>
+        </div>
+
+        <div class="muted" style="margin-top: 8px;">
+            Progress represents workflow execution, not approval.
+        </div>
+    </section>
+
+    <section class="card">
+        <h2 class="section-title">Agent Activity</h2>
+
+        <div class="agent-grid">
+            <div class="agent-card">
+                <div class="agent-name">Developer</div>
+                <div class="agent-status" id="developerStatus">
+                    <span class="status-indicator status-pending"></span>Pending
+                </div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-name">QA</div>
+                <div class="agent-status" id="qaStatus">
+                    <span class="status-indicator status-pending"></span>Pending
+                </div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-name">Security</div>
+                <div class="agent-status" id="securityStatus">
+                    <span class="status-indicator status-pending"></span>Pending
+                </div>
+            </div>
+            <div class="agent-card">
+                <div class="agent-name">Architect</div>
+                <div class="agent-status" id="architectStatus">
+                    <span class="status-indicator status-pending"></span>Pending
+                </div>
+            </div>
+        </div>
+
+        <p class="muted" style="margin-bottom: 0;">
+            Correction attempts: <strong id="retryCount">0 / 2</strong>
+        </p>
+    </section>
+
+    <section class="card">
+        <h2 class="section-title">Agent Reports</h2>
+
+        <div class="results-grid">
+            <div class="result-panel">
+                <h3>Final Result</h3>
+                <div class="result-content" id="finalResult">
+                    No completed workflow available.
+                </div>
+            </div>
+
+            <div class="result-panel">
+                <h3>QA Review</h3>
+                <div class="result-content" id="qaReport">
+                    No QA review available.
+                </div>
+            </div>
+
+            <div class="result-panel">
+                <h3>Security Review</h3>
+                <div class="result-content" id="securityDecision">
+                    No security review available.
+                </div>
+                <div id="securityFindings" style="margin-top: 12px;"></div>
+            </div>
+
+            <div class="result-panel">
+                <h3>Architecture Analysis</h3>
+                <div class="result-content" id="architectureReport">
+                    No architecture report available.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2 class="section-title">Execution History</h2>
+        <div id="executionHistory" class="empty-state">
+            No agent activity recorded.
+        </div>
+    </section>
+
+</main>
+
+<script>
+    const API_BASE = "";
+
+    const terminalStatuses = new Set([
+        "COMPLETED",
+        "NEEDS_REVIEW",
+        "REJECTED",
+        "FAILED",
+        "CANCELLED"
+    ]);
+
+    const notRunValues = new Set(["", "NOT_RUN", "NOT_STARTED", "PENDING"]);
+
+    let currentTaskId = null;
+    let pollingTimer = null;
+
+    const elements = {
+        connection: document.getElementById("connectionStatus"),
+        form: document.getElementById("taskForm"),
+        taskInput: document.getElementById("taskInput"),
+        maxRetries: document.getElementById("maxRetries"),
+        submitButton: document.getElementById("submitButton"),
+        cancelButton: document.getElementById("cancelButton"),
+        formMessage: document.getElementById("formMessage"),
+        taskList: document.getElementById("taskList"),
+        refreshTasksButton: document.getElementById("refreshTasksButton"),
+        taskId: document.getElementById("taskId"),
+        progress: document.getElementById("progressPercentage"),
+        progressFill: document.getElementById("progressFill"),
+        stage: document.getElementById("workflowStage"),
+        agent: document.getElementById("currentAgent"),
+        status: document.getElementById("workflowStatus"),
+        retries: document.getElementById("retryCount"),
+        finalResult: document.getElementById("finalResult"),
+        qaReport: document.getElementById("qaReport"),
+        securityDecision: document.getElementById("securityDecision"),
+        securityFindings: document.getElementById("securityFindings"),
+        architectureReport: document.getElementById("architectureReport"),
+        history: document.getElementById("executionHistory")
+    };
+
+    // -----------------------------------------------------
+    // GENERAL HELPERS
+    // -----------------------------------------------------
+
+    function formatDate(value) {
+        if (!value) return "Time unavailable";
+
+        const date = new Date(value);
+
+        return Number.isNaN(date.getTime())
+            ? "Time unavailable"
+            : date.toLocaleString();
+    }
+
+    function isActive(status) {
+        return ["PENDING", "RUNNING"].includes(status);
+    }
+
+    function statusClass(status) {
+        if (["COMPLETED", "PASSED", "PASS"].includes(status)) return "completed";
+        if (["FAILED", "REJECTED", "CANCELLED", "FAIL"].includes(status)) return "failed";
+        if (["RUNNING", "PENDING"].includes(status)) return "running";
+        return "";
+    }
+
+    function normalizeAgent(value) {
+        return String(value || "")
+            .toUpperCase()
+            .replace(/[^A-Z]/g, "");
+    }
+
+    function hasAgentHistory(task, agentName) {
+        const history = Array.isArray(task.execution_history)
+            ? task.execution_history
+            : [];
+
+        return history.some(entry =>
+            normalizeAgent(entry.agent).includes(agentName)
+        );
+    }
+
+    function isMeaningfulValue(value) {
+        return value !== null &&
+            value !== undefined &&
+            !notRunValues.has(String(value).toUpperCase());
+    }
+
+    function setAgentStatus(elementId, label, state) {
+        const element = document.getElementById(elementId);
+        const indicator = document.createElement("span");
+
+        indicator.className = `status-indicator status-${state}`;
+
+        element.replaceChildren(
+            indicator,
+            document.createTextNode(` ${label}`)
+        );
+    }
+
+    // -----------------------------------------------------
+    // AGENT STATUS DISPLAY
+    // -----------------------------------------------------
+
+    function updateAgentCards(task) {
+        const current = normalizeAgent(task.current_agent);
+        const workflowStatus = task.workflow_status;
+        const terminal = terminalStatuses.has(workflowStatus);
+
+        const developerHistory = hasAgentHistory(task, "DEVELOPER");
+        const qaHistory = hasAgentHistory(task, "QA");
+        const securityHistory = hasAgentHistory(task, "SECURITY");
+        const architectHistory = hasAgentHistory(task, "ARCHITECT");
+
+        const qaHasResult = isMeaningfulValue(task.qa_decision);
+        const securityHasResult =
+            isMeaningfulValue(task.security_status) ||
+            isMeaningfulValue(task.security_decision);
+
+        const architectureHasResult =
+            isMeaningfulValue(task.architecture_status);
+
+        const agentDefinitions = [
+            {
+                name: "DEVELOPER",
+                element: "developerStatus",
+                hasResult: developerHistory,
+                label: developerHistory
+                    ? "Implementation activity recorded"
+                    : "Pending"
+            },
+            {
+                name: "QA",
+                element: "qaStatus",
+                hasResult: qaHasResult || qaHistory,
+                label: qaHasResult
+                    ? `Decision: ${task.qa_decision}`
+                    : qaHistory
+                        ? "Review activity recorded"
+                        : "Pending"
+            },
+            {
+                name: "SECURITY",
+                element: "securityStatus",
+                hasResult: securityHasResult || securityHistory,
+                label: securityHasResult
+                    ? `${task.security_decision || "Reviewed"} — ${task.security_status || "Status unavailable"}`
+                    : securityHistory
+                        ? "Review activity recorded"
+                        : "Pending"
+            },
+            {
+                name: "ARCHITECT",
+                element: "architectStatus",
+                hasResult: architectureHasResult || architectHistory,
+                label: architectureHasResult
+                    ? task.architecture_status
+                    : architectHistory
+                        ? "Analysis activity recorded"
+                        : "Pending"
+            }
+        ];
+
+        for (const agent of agentDefinitions) {
+            let state = "pending";
+            let label = agent.label;
+
+            if (current === agent.name && workflowStatus === "RUNNING") {
+                state = "running";
+                label = "Working";
+            } else if (agent.hasResult) {
+                state = "completed";
+            }
+
+            if (terminal && workflowStatus === "FAILED" && !agent.hasResult) {
+                state = "failed";
+                label = "Not completed";
+            }
+
+            if (terminal && workflowStatus === "CANCELLED" && !agent.hasResult) {
+                state = "failed";
+                label = "Cancelled";
+            }
+
+            if (terminal && workflowStatus === "REJECTED" && !agent.hasResult) {
+                state = "failed";
+                label = "Not completed";
+            }
+
+            setAgentStatus(agent.element, label, state);
+        }
+    }
+
+    // -----------------------------------------------------
+    // SECURITY FINDINGS
+    // -----------------------------------------------------
+
+    function renderFindings(findings) {
+        elements.securityFindings.replaceChildren();
+
+        if (!Array.isArray(findings) || findings.length === 0) {
+            elements.securityFindings.textContent =
+                "No security findings reported.";
+            elements.securityFindings.className = "empty-state";
+            return;
+        }
+
+        elements.securityFindings.className = "";
+
+        const allowedSeverities = new Set([
+            "critical", "high", "medium", "low", "info"
+        ]);
+
+        for (const finding of findings) {
+            const severity = String(finding.severity || "INFO").toLowerCase();
+            const safeSeverity = allowedSeverities.has(severity)
+                ? severity
+                : "info";
+
+            const card = document.createElement("div");
+            card.className = "finding";
+
+            const severityElement = document.createElement("div");
+            severityElement.className =
+                `finding-severity severity-${safeSeverity}`;
+            severityElement.textContent = finding.severity || "INFO";
+
+            const title = document.createElement("strong");
+            title.textContent = finding.title || "Security finding";
+
+            const description = document.createElement("div");
+            description.className = "history-details";
+            description.textContent = finding.description || "";
+
+            const location = document.createElement("div");
+            location.className = "history-details";
+            location.textContent =
+                `File: ${finding.file_path || "Not specified"}`;
+
+            const recommendation = document.createElement("div");
+            recommendation.className = "history-details";
+            recommendation.textContent =
+                `Recommendation: ${finding.recommendation || "None provided"}`;
+
+            card.append(
+                severityElement,
+                title,
+                description,
+                location,
+                recommendation
+            );
+
+            elements.securityFindings.appendChild(card);
+        }
+    }
+
+    // -----------------------------------------------------
+    // EXECUTION HISTORY
+    // -----------------------------------------------------
+
+    function renderHistory(history) {
+        elements.history.replaceChildren();
+
+        if (!Array.isArray(history) || history.length === 0) {
+            elements.history.textContent = "No agent activity recorded.";
+            elements.history.className = "empty-state";
+            return;
+        }
+
+        elements.history.className = "";
+
+        for (const entry of history) {
+            const container = document.createElement("div");
+            container.className = "history-entry";
+
+            const title = document.createElement("div");
+            title.className = "history-title";
+            title.textContent =
+                `${entry.agent || "Agent"} — ${entry.status || "Unknown"}`;
+
+            const activity = document.createElement("div");
+            activity.className = "history-details";
+            activity.textContent = entry.activity || "";
+
+            const timestamp = document.createElement("div");
+            timestamp.className = "history-details";
+            timestamp.textContent = formatDate(entry.timestamp);
+
+            container.append(title, activity, timestamp);
+
+            if (entry.details) {
+                const details = document.createElement("div");
+                details.className = "history-details";
+                details.textContent = entry.details;
+                container.appendChild(details);
+            }
+
+            elements.history.appendChild(container);
+        }
+    }
+
+    // -----------------------------------------------------
+    // TASK RENDERING
+    // -----------------------------------------------------
+
+    function renderTask(task) {
+        const percentage = Math.max(
+            0,
+            Math.min(Number(task.progress_percentage) || 0, 100)
+        );
+
+        const workflowStatus = task.workflow_status || "UNKNOWN";
+        const terminal = terminalStatuses.has(workflowStatus);
+
+        elements.taskId.textContent = task.task_id || currentTaskId || "None";
+        elements.progress.textContent = `${percentage}%`;
+        elements.progressFill.style.width = `${percentage}%`;
+        elements.stage.textContent = task.workflow_stage || "Unknown";
+        elements.agent.textContent = task.current_agent || "NONE";
+        elements.status.textContent = workflowStatus;
+        elements.status.className =
+            `status-text ${statusClass(workflowStatus)}`;
+
+        elements.retries.textContent =
+            `${task.retry_count || 0} / ${task.max_retries ?? 0}`;
+
+        elements.finalResult.textContent =
+            task.final_result || "No final result available.";
+
+        elements.qaReport.textContent =
+            task.qa_review || "No QA review available.";
+
+        elements.securityDecision.textContent =
+            `Decision: ${task.security_decision || "Not available"}\n` +
+            `Status: ${task.security_status || "NOT_RUN"}\n` +
+            `Review completed: ${task.security_review_completed ? "Yes" : "No"}\n\n` +
+            (task.security_review || "");
+
+        elements.architectureReport.textContent =
+            task.architecture_report || "No architecture report available.";
+
+        updateAgentCards(task);
+        renderFindings(task.security_findings);
+        renderHistory(task.execution_history);
+
+        const active = isActive(workflowStatus);
+
+        elements.cancelButton.disabled =
+            !active || Boolean(task.cancellation_requested);
+
+        elements.cancelButton.textContent =
+            task.cancellation_requested && active
+                ? "Cancellation Requested"
+                : "Cancel Task";
+
+        // A selected task does not prevent submission of another task.
+        elements.submitButton.disabled = false;
+
+        if (terminal) {
+            stopPolling();
+            elements.formMessage.textContent =
+                `Workflow finished with status: ${workflowStatus}`;
+            refreshTaskList();
+        } else if (task.cancellation_requested) {
+            elements.formMessage.textContent =
+                "Cancellation requested. Waiting for the workflow to stop.";
+        }
+    }
+
+    function resetTaskDisplay() {
+        elements.workflowStage.textContent = "Waiting for a development task.";
+        elements.progress.textContent = "0%";
+        elements.progressFill.style.width = "0%";
+        elements.agent.textContent = "None";
+        elements.status.textContent = "IDLE";
+        elements.status.className = "status-text";
+        elements.retries.textContent = "0 / 2";
+
+        elements.finalResult.textContent = "No completed workflow available.";
+        elements.qaReport.textContent = "No QA review available.";
+        elements.securityDecision.textContent = "No security review available.";
+        elements.architectureReport.textContent = "No architecture report available.";
+
+        elements.securityFindings.textContent =
+            "No security findings reported.";
+        elements.securityFindings.className = "empty-state";
+
+        elements.history.textContent = "No agent activity recorded.";
+
+        setAgentStatus("developerStatus", "Pending", "pending");
+        setAgentStatus("qaStatus", "Pending", "pending");
+        setAgentStatus("securityStatus", "Pending", "pending");
+        setAgentStatus("architectStatus", "Pending", "pending");
+    }
+
+    // -----------------------------------------------------
+    // TASK HISTORY
+    // -----------------------------------------------------
+
+    async function refreshTaskList() {
+        try {
+            const response = await fetch(`${API_BASE}/tasks`);
+
+            if (!response.ok) {
+                throw new Error("Unable to retrieve task history.");
+            }
+
+            const result = await response.json();
+            const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+
+            tasks.sort((a, b) =>
+                new Date(b.created_at || 0) - new Date(a.created_at || 0)
+            );
+
+            elements.taskList.replaceChildren();
+
+            if (tasks.length === 0) {
+                elements.taskList.textContent =
+                    "No development tasks have been submitted.";
+                elements.taskList.className = "task-list empty-state";
+                return;
+            }
+
+            elements.taskList.className = "task-list";
+
+            for (const task of tasks) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "task-list-item";
+
+                if (task.task_id === currentTaskId) {
+                    button.classList.add("selected");
+                }
+
+                const title = document.createElement("div");
+                title.className = "task-list-title";
+
+                const taskText = String(task.task || "Development task");
+                title.textContent = taskText.length > 110
+                    ? `${taskText.slice(0, 110)}...`
+                    : taskText;
+
+                const meta = document.createElement("div");
+                meta.className = "task-list-meta";
+
+                const statusText = document.createElement("span");
+                statusText.textContent =
+                    `${task.workflow_status || "UNKNOWN"} — ` +
+                    `${task.progress_percentage || 0}%`;
+
+                const dateText = document.createElement("span");
+                dateText.textContent = formatDate(task.created_at);
+
+                meta.append(statusText, dateText);
+                button.append(title, meta);
+
+                button.addEventListener("click", () => {
+                    selectTask(task.task_id);
+                });
+
+                elements.taskList.appendChild(button);
+            }
+        } catch (error) {
+            elements.taskList.textContent = error.message;
+            elements.taskList.className = "task-list empty-state";
+        }
+    }
+
+    async function selectTask(taskId) {
+        if (!taskId) return;
+
+        stopPolling();
+        currentTaskId = taskId;
+        elements.taskId.textContent = taskId;
+        elements.formMessage.textContent = "Loading selected task...";
+
+        const shouldContinuePolling = await refreshTask();
+
+        if (shouldContinuePolling && currentTaskId === taskId) {
+            scheduleNextPoll();
+        }
+
+        await refreshTaskList();
+    }
+
+    // -----------------------------------------------------
+    // API CONNECTION
+    // -----------------------------------------------------
+
+    async function checkConnection() {
+        try {
+            const response = await fetch(`${API_BASE}/health`);
+
+            if (!response.ok) throw new Error("API unavailable");
+
+            elements.connection.textContent = "API Connected";
+            elements.connection.style.color = "var(--green)";
+        } catch (error) {
+            elements.connection.textContent = "API Disconnected";
+            elements.connection.style.color = "var(--red)";
+        }
+    }
+
+    // -----------------------------------------------------
+    // TASK SUBMISSION
+    // -----------------------------------------------------
+
+    async function submitTask(event) {
+        event.preventDefault();
+
+        const task = elements.taskInput.value.trim();
+
+        if (!task) {
+            elements.formMessage.textContent = "Enter a development task first.";
+            return;
+        }
+
+        stopPolling();
+        elements.submitButton.disabled = true;
+        elements.cancelButton.disabled = true;
+        elements.formMessage.textContent = "Submitting task...";
+
+        try {
+            const response = await fetch(`${API_BASE}/tasks`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    task,
+                    max_retries: Number(elements.maxRetries.value)
+                })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || "Unable to submit task.");
+            }
+
+            currentTaskId = result.task_id;
+            resetTaskDisplay();
+
+            elements.taskId.textContent = currentTaskId;
+            elements.status.textContent = "PENDING";
+            elements.status.className = "status-text running";
+            elements.formMessage.textContent =
+                "Task accepted. Agents are starting.";
+
+            elements.finalResult.textContent = "Workflow is running.";
+            elements.qaReport.textContent = "Waiting for QA review.";
+            elements.securityDecision.textContent = "Waiting for security review.";
+            elements.architectureReport.textContent =
+                "Waiting for architecture analysis.";
+            elements.history.textContent = "Waiting for agent activity.";
+
+            elements.taskInput.value = "";
+
+            await refreshTaskList();
+            startPolling();
+        } catch (error) {
+            elements.formMessage.textContent = error.message;
+            elements.submitButton.disabled = false;
+        }
+    }
+
+    // -----------------------------------------------------
+    // TASK STATUS POLLING
+    // -----------------------------------------------------
+
+    async function refreshTask() {
+        if (!currentTaskId) return false;
+
+        const requestedTaskId = currentTaskId;
+
+        try {
+            const response = await fetch(
+                `${API_BASE}/tasks/${encodeURIComponent(requestedTaskId)}`
+            );
+
+            if (!response.ok) {
+                throw new Error("Unable to retrieve task status.");
+            }
+
+            const task = await response.json();
+
+            if (requestedTaskId !== currentTaskId) return false;
+
+            renderTask(task);
+            return isActive(task.workflow_status);
+        } catch (error) {
+            if (requestedTaskId === currentTaskId) {
+                elements.formMessage.textContent = error.message;
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    function startPolling() {
+        stopPolling();
+        pollTaskStatus();
+    }
+
+    async function pollTaskStatus() {
+        const requestedTaskId = currentTaskId;
+        const shouldContinuePolling = await refreshTask();
+
+        if (
+            shouldContinuePolling &&
+            currentTaskId === requestedTaskId
+        ) {
+            scheduleNextPoll();
+        }
+    }
+
+    function scheduleNextPoll() {
+        stopPolling();
+
+        if (!currentTaskId) return;
+
+        pollingTimer = setTimeout(() => {
+            pollTaskStatus();
+        }, 1500);
+    }
+
+    function stopPolling() {
+        if (pollingTimer !== null) {
+            clearTimeout(pollingTimer);
+            pollingTimer = null;
+        }
+    }
+
+    // -----------------------------------------------------
+    // TASK CANCELLATION
+    // -----------------------------------------------------
+
+    async function cancelTask() {
+        if (!currentTaskId) return;
+
+        const requestedTaskId = currentTaskId;
+
+        elements.cancelButton.disabled = true;
+        elements.formMessage.textContent = "Sending cancellation request...";
+
+        try {
+            const response = await fetch(
+                `${API_BASE}/tasks/${encodeURIComponent(requestedTaskId)}/cancel`,
+                { method: "POST" }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || "Cancellation request failed.");
+            }
+
+            if (requestedTaskId !== currentTaskId) return;
+
+            elements.formMessage.textContent =
+                "Cancellation requested. Waiting for workflow acknowledgment.";
+
+            startPolling();
+        } catch (error) {
+            if (requestedTaskId === currentTaskId) {
+                elements.formMessage.textContent = error.message;
+                elements.cancelButton.disabled = false;
+            }
+        }
+    }
+
+    // -----------------------------------------------------
+    // EVENT HANDLERS / INITIALIZATION
+    // -----------------------------------------------------
+
+    elements.form.addEventListener("submit", submitTask);
+    elements.cancelButton.addEventListener("click", cancelTask);
+    elements.refreshTasksButton.addEventListener("click", refreshTaskList);
+
+    checkConnection();
+    refreshTaskList();
+
+    setInterval(checkConnection, 10000);
+</script>
+
+</body>
+</html>

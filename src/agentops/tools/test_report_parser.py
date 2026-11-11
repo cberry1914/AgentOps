@@ -70,9 +70,14 @@ class ParsedTestReport:
 class TestReportParser:
     """Extract test counts and errors from pytest output."""
 
+    # Supports both plain summaries and pytest-decorated summaries:
+    # 5 passed in 0.42s
+    # ===== 5 passed in 0.42s =====
     SUMMARY_PATTERN = re.compile(
+        r"^\s*=*\s*"
         r"(?P<summary>.*?)\bin\s+"
-        r"(?P<duration>\d+(?:\.\d+)?)s\s*$",
+        r"(?P<duration>\d+(?:\.\d+)?)s"
+        r"\s*=*\s*$",
         re.IGNORECASE,
     )
 
@@ -82,8 +87,9 @@ class TestReportParser:
         re.IGNORECASE,
     )
 
+    # Supports decorated pytest collection headings.
     COLLECTION_ERROR_PATTERN = re.compile(
-        r"^\s*ERROR collecting ",
+        r"^\s*_*\s*ERROR collecting\b",
         re.IGNORECASE,
     )
 
@@ -121,29 +127,19 @@ class TestReportParser:
 
         lines = output.splitlines()
 
-        self._count_collection_errors(
-            lines,
-            report,
-        )
+        self._count_collection_errors(lines, report)
 
         summary_line = self._find_summary_line(lines)
 
         if summary_line is not None:
-            self._parse_summary(
-                summary_line,
-                report,
-            )
+            self._parse_summary(summary_line, report)
 
-        self._count_warning_lines(
-            lines,
-            report,
-        )
+        self._count_warning_lines(lines, report)
 
         if not report.summary_found:
             report.no_tests_collected = (
                 self._detect_no_tests_collected(output)
             )
-
         elif report.total == 0:
             report.no_tests_collected = True
 
@@ -200,9 +196,7 @@ class TestReportParser:
             "warnings": 0,
         }
 
-        for count_match in self.COUNT_PATTERN.finditer(
-            summary_text
-        ):
+        for count_match in self.COUNT_PATTERN.finditer(summary_text):
             result_name = count_match.group("result").lower()
             count = int(count_match.group("count"))
 
@@ -271,8 +265,9 @@ class TestReportParser:
         """
         Estimate warning presence when pytest provides no count.
 
-        The fallback counts warning records rather than every
-        line in the warnings summary.
+        The fallback counts recognized warning records. If those
+        are unavailable, it checks for non-decoration content
+        inside the warning summary section.
         """
 
         if report.warnings > 0:
@@ -286,28 +281,34 @@ class TestReportParser:
 
         report.warnings = warning_count
 
-        # If pytest uses a warning summary format that cannot be
-        # recognized precisely, preserve a minimum indicator
-        # instead of claiming that no warnings were present.
-        if warning_count == 0:
-            in_warning_section = False
+        if warning_count > 0:
+            return
 
-            for line in lines:
-                normalized = line.strip().lower()
+        in_warning_section = False
 
-                if any(
-                    normalized.startswith(marker)
-                    for marker in self.WARNING_SECTION_MARKERS
-                ):
-                    in_warning_section = True
-                    continue
+        for line in lines:
+            stripped = line.strip()
 
-                if in_warning_section and line.strip():
-                    if line.strip().startswith("="):
-                        break
+            if not stripped:
+                continue
 
-                    report.warnings = 1
+            normalized = stripped.strip("= ").lower()
+
+            if any(
+                normalized.startswith(marker)
+                for marker in self.WARNING_SECTION_MARKERS
+            ):
+                in_warning_section = True
+                continue
+
+            if in_warning_section:
+                # A new decorated pytest section ends the
+                # warning summary.
+                if stripped.startswith("="):
                     break
+
+                report.warnings = 1
+                break
 
     @staticmethod
     def _detect_no_tests_collected(

@@ -22,7 +22,6 @@ Security boundaries:
 """
 
 import re
-
 from typing import Optional
 
 from agentops.models.security_review import SecurityFinding
@@ -70,9 +69,7 @@ class SecurityScanner:
         (
             "Slack Token",
             "HIGH",
-            re.compile(
-                r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"
-            ),
+            re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
         ),
         (
             "Private Key Material",
@@ -86,31 +83,28 @@ class SecurityScanner:
 
     ASSIGNMENT_PATTERN = re.compile(
         r"""
-        (?ix)
         \b
         (?P<name>
             password
             |passwd
             |pwd
             |secret
-            |api[_-]?key
-            |access[_-]?token
-            |auth[_-]?token
-            |client[_-]?secret
-            |private[_-]?key
-            |db[_-]?password
+            |api[\_-]?key
+            |access[\_-]?token
+            |auth[\_-]?token
+            |client[\_-]?secret
+            |private[\_-]?key
+            |(?:db|database)[\_-]?password
         )
         \b
         \s*
-        (?:
-            =
-            | :
-        )
+        (?:=|:)
         \s*
         (?P<quote>["'])
         (?P<value>[^"'\r\n]{4,})
         (?P=quote)
-        """
+        """,
+        re.IGNORECASE | re.VERBOSE,
     )
 
     def __init__(self):
@@ -143,10 +137,7 @@ class SecurityScanner:
         return False
 
     @staticmethod
-    def _redact_line(
-        line: str,
-        secret: str,
-    ) -> str:
+    def _redact_line(line: str, secret: str) -> str:
         """Replace a detected secret with a redaction marker."""
 
         if not secret:
@@ -200,7 +191,6 @@ class SecurityScanner:
 
         for category, severity, pattern in self.SECRET_PATTERNS:
             for match in pattern.finditer(line):
-
                 secret = match.group(0)
 
                 findings.append(
@@ -240,7 +230,6 @@ class SecurityScanner:
         findings = []
 
         for match in self.ASSIGNMENT_PATTERN.finditer(line):
-
             variable_name = match.group("name")
             secret = match.group("value")
 
@@ -308,7 +297,6 @@ class SecurityScanner:
         for file_index, (relative_path, content) in enumerate(
             files.items()
         ):
-
             if file_index >= self.MAX_FILES:
                 break
 
@@ -328,7 +316,6 @@ class SecurityScanner:
                 content.splitlines(),
                 start=1,
             ):
-
                 if cancel_event is not None and cancel_event.is_set():
                     return findings
 
@@ -347,7 +334,6 @@ class SecurityScanner:
                 )
 
                 for finding in line_findings:
-
                     # Deduplicate overlapping detections.
                     identity = (
                         finding.file_path,

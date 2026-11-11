@@ -98,6 +98,9 @@ class TestDiscovery:
     ) -> Path:
         """Validate and resolve the project directory."""
 
+        if workspace_path is None:
+            raise ValueError("Workspace path is required.")
+
         workspace = Path(workspace_path)
 
         if workspace.is_symlink():
@@ -164,7 +167,7 @@ class TestDiscovery:
         try:
             workspace = self._validate_workspace(workspace_path)
 
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, TypeError) as exc:
             result.discovery_complete = False
             result.error_message = str(exc)
             return result

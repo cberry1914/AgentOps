@@ -1,10 +1,11 @@
 
 # AgentOps - Python Test Sandbox
 #
-# Minimal Python environment for isolated pytest execution.
-# The container runs as an unprivileged user.
+# Reproducible Python environment for isolated pytest execution.
+# Dependencies are installed during image construction.
+# Runtime execution does not require network access.
 #
-# This image is built separately from the AgentOps application.
+# The container runs as an unprivileged user.
 
 FROM python:3.12-slim
 
@@ -13,9 +14,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 
-# Install only the test framework.
-# Plugin autoload is disabled at runtime by DockerSandbox.
-RUN pip install --no-cache-dir pytest==8.3.5
+# Copy the pinned dependency manifest into the image.
+COPY requirements.lock /tmp/requirements.lock
+
+# Install the complete pinned AgentOps test environment.
+RUN pip install --no-cache-dir \
+        --requirement /tmp/requirements.lock \
+    && rm /tmp/requirements.lock
 
 # Create a dedicated non-root execution account.
 RUN groupadd --gid 10001 agentops \

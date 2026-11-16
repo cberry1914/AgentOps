@@ -1,3 +1,4 @@
+
 """
 AgentOps - Sandbox Image Builder
 
@@ -13,14 +14,27 @@ The builder:
 - Verifies the resulting image.
 - Supports task cancellation during image construction.
 - Detects incomplete output collection.
+- Terminates the local Docker CLI process tree on cancellation
+  and timeout.
 - Never executes project code.
+
+Platform support:
+- Linux: POSIX process groups and signals.
+- Windows: Windows process groups and taskkill process-tree
+  termination.
 
 Network access is permitted during image construction so trusted
 base-image dependencies can be downloaded. Runtime network
 isolation is enforced separately by DockerSandbox.
+
+Important:
+Terminating the local Docker CLI process tree does not guarantee
+that Docker daemon-side image-build work is cancelled.
 """
 
+import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -89,10 +103,7 @@ class _OutputCapture:
             buffer.append(chunk)
             self._character_counts[stream_name] += len(chunk)
 
-            while (
-                self._character_counts[stream_name]
-                > self.MAX_CHARS
-            ):
+            while self._character_counts[stream_name] > self.MAX_CHARS:
                 excess = (
                     self._character_counts[stream_name]
                     - self.MAX_CHARS
@@ -146,13 +157,275 @@ class _OutputCapture:
             ]
 
 
+class _ProcessController:
+    """
+    Encapsulates platform-specific subprocess management.
+
+    The image builder uses this class without needing to know
+    which operating system is running AgentOps.
+    """
+
+    TERMINATION_GRACE_SECONDS = 5
+    FORCE_TERMINATION_TIMEOUT_SECONDS = 5
+    PROCESS_GROUP_POLL_INTERVAL_SECONDS = 0.05
+
+    @staticmethod
+    def start(command: list[str]) -> subprocess.Popen:
+        """
+        Start a subprocess with platform-appropriate process isolation.
+
+        POSIX:
+            A new session creates a process group that can be
+            terminated together.
+
+        Windows:
+            A new process group is created. Windows process-tree
+            termination is handled separately through taskkill.
+        """
+
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": False,
+            "bufsize": 0,
+        }
+
+        if os.name == "posix":
+            kwargs["start_new_session"] = True
+
+        elif os.name == "nt":
+            kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+
+        else:
+            raise RuntimeError(
+                f"Unsupported operating system: {os.name}"
+            )
+
+        return subprocess.Popen(command, **kwargs)
+
+    @classmethod
+    def terminate(cls, process: subprocess.Popen) -> None:
+        """
+        Terminate the subprocess and its local process tree.
+
+        POSIX process-group cleanup is attempted even when the
+        original parent process has already exited. This matters
+        because descendants can outlive their parent while keeping
+        inherited stdout or stderr pipes open.
+        """
+
+        if os.name == "posix":
+            cls._terminate_posix(process)
+
+        elif os.name == "nt":
+            if process.poll() is not None:
+                return
+
+            cls._terminate_windows(process)
+
+        else:
+            cls._terminate_direct_process(process)
+
+    @staticmethod
+    def _process_group_exists(process_group_id: int) -> bool:
+        """
+        Check whether a POSIX process group still exists.
+
+        Permission errors are treated as evidence that the group
+        exists because the caller may not have permission to signal it.
+        """
+
+        try:
+            os.killpg(process_group_id, 0)
+            return True
+
+        except ProcessLookupError:
+            return False
+
+        except PermissionError:
+            return True
+
+        except OSError:
+            return True
+
+    @classmethod
+    def _wait_for_process_group_exit(
+        cls,
+        process_group_id: int,
+        timeout_seconds: float,
+    ) -> bool:
+        """Wait for a process group to disappear within a fixed timeout."""
+
+        deadline = time.monotonic() + timeout_seconds
+
+        while cls._process_group_exists(process_group_id):
+            if time.monotonic() >= deadline:
+                return False
+
+            time.sleep(cls.PROCESS_GROUP_POLL_INTERVAL_SECONDS)
+
+        return True
+
+    @classmethod
+    def _terminate_posix(
+        cls,
+        process: subprocess.Popen,
+    ) -> None:
+        """
+        Terminate a POSIX process group.
+
+        Do not return merely because the original process exited.
+        Its descendants may still belong to the same process group.
+        """
+
+        process_group_id = process.pid
+
+        try:
+            os.killpg(process_group_id, signal.SIGTERM)
+
+        except ProcessLookupError:
+            cls._reap_process(process)
+            return
+
+        except OSError:
+            cls._terminate_direct_process(process)
+            return
+
+        group_exited = cls._wait_for_process_group_exit(
+            process_group_id,
+            cls.TERMINATION_GRACE_SECONDS,
+        )
+
+        if not group_exited:
+            try:
+                os.killpg(process_group_id, signal.SIGKILL)
+
+            except ProcessLookupError:
+                pass
+
+            except OSError:
+                cls._terminate_direct_process(process)
+
+            cls._wait_for_process_group_exit(
+                process_group_id,
+                cls.FORCE_TERMINATION_TIMEOUT_SECONDS,
+            )
+
+        cls._reap_process(process)
+
+    @classmethod
+    def _reap_process(
+        cls,
+        process: subprocess.Popen,
+    ) -> None:
+        """Reap the original subprocess without an unbounded wait."""
+
+        try:
+            process.wait(
+                timeout=cls.FORCE_TERMINATION_TIMEOUT_SECONDS
+            )
+
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+            try:
+                process.wait(
+                    timeout=cls.FORCE_TERMINATION_TIMEOUT_SECONDS
+                )
+            except subprocess.TimeoutExpired:
+                pass
+
+    @classmethod
+    def _terminate_windows(
+        cls,
+        process: subprocess.Popen,
+    ) -> None:
+        """
+        Terminate a Windows process tree.
+
+        taskkill /T targets child processes as well as the specified
+        process. /F requests forced termination.
+
+        If taskkill cannot be executed or fails, fall back to direct
+        process termination.
+
+        Windows process-tree cleanup requires separate native Windows
+        integration testing before production deployment.
+        """
+
+        try:
+            result = subprocess.run(
+                [
+                    "taskkill",
+                    "/PID",
+                    str(process.pid),
+                    "/T",
+                    "/F",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=cls.FORCE_TERMINATION_TIMEOUT_SECONDS,
+                check=False,
+            )
+
+            if result.returncode == 0:
+                cls._reap_process(process)
+                return
+
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+        cls._terminate_direct_process(process)
+
+    @classmethod
+    def _terminate_direct_process(
+        cls,
+        process: subprocess.Popen,
+    ) -> None:
+        """Fallback termination for the direct subprocess."""
+
+        if process.poll() is not None:
+            return
+
+        try:
+            process.terminate()
+
+        except OSError:
+            try:
+                process.kill()
+            except OSError:
+                return
+
+        try:
+            process.wait(
+                timeout=cls.TERMINATION_GRACE_SECONDS
+            )
+
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+            try:
+                process.wait(
+                    timeout=cls.FORCE_TERMINATION_TIMEOUT_SECONDS
+                )
+            except subprocess.TimeoutExpired:
+                pass
+
+
 class SandboxImageBuilder:
     """Builds and verifies the AgentOps Python sandbox image."""
 
     IMAGE_NAME = "agentops-python-sandbox:latest"
 
     BUILD_TIMEOUT_SECONDS = 900
-    TERMINATION_GRACE_SECONDS = 5
     OUTPUT_JOIN_TIMEOUT_SECONDS = 5
 
     READ_CHUNK_SIZE = 4096
@@ -216,42 +489,24 @@ class SandboxImageBuilder:
             return False
 
     # ---------------------------------------------------------
-    # PROCESS TERMINATION
+    # PROCESS MANAGEMENT
     # ---------------------------------------------------------
+
+    @staticmethod
+    def _start_process(
+        command: list[str],
+    ) -> subprocess.Popen:
+        """Start a process using the platform-independent controller."""
+
+        return _ProcessController.start(command)
 
     @staticmethod
     def _terminate_process(
         process: subprocess.Popen,
     ) -> None:
-        """Terminate the Docker CLI process and wait for exit."""
+        """Terminate a process and its local process tree."""
 
-        if process.poll() is not None:
-            return
-
-        try:
-            process.terminate()
-
-        except OSError:
-            try:
-                process.kill()
-            except OSError:
-                return
-
-        try:
-            process.wait(
-                timeout=SandboxImageBuilder.TERMINATION_GRACE_SECONDS
-            )
-
-        except subprocess.TimeoutExpired:
-            try:
-                process.kill()
-            except OSError:
-                pass
-
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
+        _ProcessController.terminate(process)
 
     # ---------------------------------------------------------
     # PROCESS OUTPUT
@@ -352,10 +607,9 @@ class SandboxImageBuilder:
         """
         Attempt to finish output readers after process termination.
 
-        Closing the pipes can unblock readers that are waiting for
-        additional output. The readers remain daemon threads so an
-        operating-system-level pipe issue cannot indefinitely block
-        the AgentOps workflow.
+        Closing pipes can unblock readers waiting for additional
+        output. Readers remain daemon threads so an operating-system
+        pipe issue cannot indefinitely block the AgentOps workflow.
         """
 
         if process is not None:
@@ -363,7 +617,7 @@ class SandboxImageBuilder:
                 if stream is not None:
                     try:
                         stream.close()
-                    except OSError:
+                    except (OSError, ValueError):
                         pass
 
         return self._join_output_readers(readers)
@@ -434,9 +688,9 @@ class SandboxImageBuilder:
         """
         Build the sandbox image.
 
-        Cancellation terminates the local Docker CLI process.
-        Docker daemon-side cleanup is not guaranteed if the client
-        is interrupted during an active image build.
+        Cancellation and timeout terminate the local Docker CLI
+        process tree. Docker daemon-side cleanup is not guaranteed
+        if the client is interrupted during an active image build.
         """
 
         check_cancelled(cancel_event)
@@ -504,13 +758,7 @@ class SandboxImageBuilder:
         start_time = time.monotonic()
 
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                bufsize=0,
-            )
+            process = self._start_process(command)
 
             readers = self._start_output_readers(
                 process,
@@ -556,6 +804,13 @@ class SandboxImageBuilder:
             readers_finished = self._join_output_readers(readers)
 
             if not readers_finished:
+                # The Docker CLI may have exited while a descendant
+                # still holds an inherited output pipe open. On POSIX,
+                # make one final process-group cleanup attempt before
+                # closing the parent-side pipe handles.
+                if os.name == "posix":
+                    self._terminate_process(process)
+
                 readers_finished = self._stop_output_readers(
                     process,
                     readers,
@@ -651,9 +906,11 @@ class SandboxImageBuilder:
             )
 
         finally:
-            if process is not None and process.poll() is None:
-                self._terminate_process(process)
-
+            # Process termination is handled explicitly by timeout,
+            # cancellation, and exception paths above. Do not signal a
+            # POSIX process group unconditionally here: after a successful
+            # build, the original process may already have been reaped
+            # and its numeric process-group ID could eventually be reused.
             readers_finished = self._join_output_readers(readers)
 
             if not readers_finished:

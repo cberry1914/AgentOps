@@ -2,8 +2,9 @@
 """
 AgentOps - Security Policy Engine Tests
 
-Tests severity-based decisions, incomplete reviews,
-human approval requirements, metadata, and validation.
+Tests severity-based decisions, automated approval,
+incomplete reviews, optional human approval,
+metadata, and validation.
 """
 
 import pytest
@@ -50,27 +51,32 @@ def test_critical_and_high_findings_produce_fail(policy, severity):
 
 
 @pytest.mark.parametrize("severity", ["MEDIUM", "LOW", "INFO"])
-def test_lower_severity_findings_require_review(policy, severity):
+def test_lower_severity_findings_do_not_block_pass(policy, severity):
+    finding = make_finding(severity)
+
     review = evaluate_clean(
         policy,
-        findings=[make_finding(severity)],
+        findings=[finding],
     )
 
-    assert review.decision == "NEEDS_REVIEW"
+    assert review.decision == "PASS"
+    assert finding in review.findings
+    assert review.metadata["finding_count"] == 1
 
 
-def test_clean_completed_scan_requires_human_review(policy):
+def test_clean_completed_scan_automatically_passes(policy):
     review = evaluate_clean(policy)
 
-    assert review.decision == "NEEDS_REVIEW"
-    assert review.requires_human_review is True
+    assert review.decision == "PASS"
+    assert review.requires_human_review is False
+    assert review.metadata["automated_approval_permitted"] is True
 
 
-def test_policy_never_automatically_issues_pass(policy):
+def test_policy_allows_automated_approval_by_default(policy):
     review = evaluate_clean(policy)
 
-    assert review.decision != "PASS"
-    assert review.metadata["automated_approval_permitted"] is False
+    assert review.decision == "PASS"
+    assert review.metadata["automated_approval_permitted"] is True
 
 
 @pytest.mark.parametrize(
@@ -122,32 +128,46 @@ def test_high_finding_overrides_partial_status(policy):
     assert review.decision == "FAIL"
 
 
-def test_ai_review_alone_is_sufficient_for_needs_review(policy):
+def test_ai_review_alone_cannot_produce_pass(policy):
     review = policy.evaluate(
         files_scanned=3,
         ai_review_completed=True,
     )
 
     assert review.decision == "NEEDS_REVIEW"
+    assert review.metadata["automated_approval_permitted"] is False
 
 
-def test_static_analysis_alone_is_sufficient_for_needs_review(policy):
+def test_static_analysis_alone_is_sufficient_for_pass(policy):
     review = policy.evaluate(
         files_scanned=3,
         static_analysis_completed=True,
     )
 
-    assert review.decision == "NEEDS_REVIEW"
+    assert review.decision == "PASS"
+    assert review.metadata["automated_approval_permitted"] is True
 
 
 # Human approval and metadata tests
 
 
-def test_human_approval_is_always_required(policy):
-    review = evaluate_clean(policy)
+def test_explicit_human_approval_requirement_blocks_pass(policy):
+    review = evaluate_clean(
+        policy,
+        require_human_approval=True,
+    )
 
+    assert review.decision == "NEEDS_REVIEW"
     assert review.requires_human_review is True
     assert review.metadata["human_approval_required"] is True
+    assert review.metadata["automated_approval_permitted"] is False
+
+
+def test_human_approval_is_not_required_by_default(policy):
+    review = evaluate_clean(policy)
+
+    assert review.requires_human_review is False
+    assert review.metadata["human_approval_required"] is False
 
 
 def test_metadata_contains_severity_counts(policy):
@@ -187,12 +207,12 @@ def test_policy_metadata_overrides_conflicting_custom_values(policy):
         policy,
         metadata={
             "finding_count": 999,
-            "automated_approval_permitted": True,
+            "automated_approval_permitted": False,
         },
     )
 
     assert review.metadata["finding_count"] == 0
-    assert review.metadata["automated_approval_permitted"] is False
+    assert review.metadata["automated_approval_permitted"] is True
 
 
 def test_summary_is_included_before_policy_summary(policy):
@@ -202,7 +222,7 @@ def test_summary_is_included_before_policy_summary(policy):
     )
 
     assert review.summary.startswith("Initial scanner report.")
-    assert "Security decision: NEEDS_REVIEW" in review.summary
+    assert "Security decision: PASS" in review.summary
 
 
 def test_policy_summary_contains_scan_details(policy):
@@ -214,7 +234,7 @@ def test_policy_summary_contains_scan_details(policy):
 
     assert "Files scanned: 8" in review.summary
     assert "Files skipped: 2" in review.summary
-    assert "Human review is required" in review.summary
+    assert "Automated security approval granted." in review.summary
 
 
 # Limitations and input validation

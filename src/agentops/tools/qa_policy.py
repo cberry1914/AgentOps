@@ -14,9 +14,10 @@ Policy:
 - Missing tests or incomplete execution require review.
 - Infrastructure problems require review.
 - Incomplete static review requires review.
-- Successful automated checks still require human approval.
+- Successful automated checks receive PASS by default.
+- Human approval can be explicitly required when requested.
 
-AgentOps does not automatically authorize production approval.
+AgentOps separates automated QA approval from human review.
 """
 
 from typing import Optional
@@ -54,6 +55,7 @@ class QAPolicyEngine:
         static_review_summary: str = "",
         tests_discovered: int = 0,
         limitations: Optional[list[str]] = None,
+        require_human_approval: bool = False,
     ) -> QAReview:
         """
         Evaluate test execution and static review evidence.
@@ -65,6 +67,8 @@ class QAPolicyEngine:
             static_review_summary: Summary of static review evidence.
             tests_discovered: Number of test files discovered.
             limitations: Known limitations or warnings.
+            require_human_approval: Whether explicit human approval
+                is required for an otherwise successful review.
 
         Returns:
             Structured QAReview with a deterministic decision.
@@ -221,21 +225,27 @@ class QAPolicyEngine:
                 "The static QA review did not complete successfully."
             )
 
-        elif tests_executed == 0:
+        elif tests_executed == 0 or tests_passed == 0:
             limitations.append(
-                "No completed automated test cases were reported."
+                "No successfully completed automated test cases "
+                "were reported."
             )
 
-        else:
-            limitations.append(
-                "Automated checks completed, but human approval "
-                "is required before the implementation can be approved."
-            )
-
-        if not static_review_summary.strip():
+        elif not static_review_summary.strip():
             limitations.append(
                 "A usable static review summary was not provided."
             )
+
+        elif require_human_approval:
+            decision = "NEEDS_REVIEW"
+
+            limitations.append(
+                "Automated checks passed. Explicit human approval "
+                "is required by the active approval policy."
+            )
+
+        else:
+            decision = "PASS"
 
         summary = self._build_summary(
             decision=decision,
@@ -262,14 +272,23 @@ class QAPolicyEngine:
             static_review_completed=static_review_completed,
             findings=findings,
             limitations=self._unique_strings(limitations),
-            requires_human_review=True,
+            requires_human_review=(
+                require_human_approval
+                and decision == "NEEDS_REVIEW"
+            ),
             metadata={
                 "static_review_summary": static_review_summary,
                 "findings_count": len(findings),
                 "severe_findings_count": len(severe_findings),
                 "collection_errors": collection_errors,
                 "execution_metadata": execution_metadata,
-                "human_approval_required": True,
+                "human_approval_required": (
+                    require_human_approval
+                    and decision == "NEEDS_REVIEW"
+                ),
+                "automated_approval_permitted": (
+                    decision == "PASS"
+                ),
             },
         )
 
@@ -338,8 +357,13 @@ class QAPolicyEngine:
 
         elif decision == "NEEDS_REVIEW":
             parts.append(
-                "The available evidence does not authorize "
-                "automatic approval."
+                "The available evidence requires additional review "
+                "before approval."
+            )
+
+        elif decision == "PASS":
+            parts.append(
+                "Automated QA approval granted."
             )
 
         return " ".join(parts)

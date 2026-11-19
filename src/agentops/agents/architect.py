@@ -142,6 +142,7 @@ Be specific, technically accurate, and concise.
         self.llm = ChatOllama(
             model="qwen3:4b-instruct",
             temperature=0.1,
+            num_ctx=16384,
         )
 
     # --------------------------------------------------

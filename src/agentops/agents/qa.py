@@ -14,6 +14,7 @@ The QA Agent:
   to QAReviewService.
 - Produces a human-readable QA report.
 - Reports workspace discovery limitations.
+- Separately reports Python and Node.js execution evidence.
 
 The LLM does not independently approve an implementation.
 """
@@ -94,6 +95,7 @@ class QAAgent:
         self.llm = ChatOllama(
             model=model_name,
             temperature=0.1,
+            num_ctx=16384,
         )
 
         self.workspace_manager = (
@@ -227,6 +229,13 @@ class QAAgent:
 
         report = result.report
 
+        # Report execution evidence separately from the static
+        # review and deterministic QA decision. Python test-case
+        # counts and Node.js command execution are not interchangeable.
+        report += self._format_execution_evidence(
+            result.execution_result
+        )
+
         report += (
             "\n\nWORKSPACE REVIEW CONTEXT\n"
             f"Files discovered: {len(files)}\n"
@@ -249,6 +258,239 @@ class QAAgent:
             )
 
         return report
+
+    # -----------------------------------------------------
+    # EXECUTION EVIDENCE REPORTING
+    # -----------------------------------------------------
+
+    @classmethod
+    def _format_execution_evidence(
+        cls,
+        execution_result,
+    ) -> str:
+        """
+        Format execution evidence without combining unlike test counts.
+
+        Python test-case counts come from the pytest parser.
+        Node.js execution status comes from the Node sandbox.
+
+        A successful npm command does not establish how many
+        individual assertions or test cases were executed.
+        """
+
+        if execution_result is None:
+            return (
+                "\n\nAUTOMATED EXECUTION EVIDENCE\n"
+                "Execution result: NOT_AVAILABLE\n"
+                "No structured execution result was returned.\n"
+            )
+
+        metadata = getattr(
+            execution_result,
+            "metadata",
+            None,
+        ) or {}
+
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        environment_results = metadata.get(
+            "environment_results",
+            {},
+        )
+
+        if not isinstance(environment_results, dict):
+            environment_results = {}
+
+        supported_environments = metadata.get(
+            "supported_test_environments",
+            [],
+        )
+
+        if not isinstance(supported_environments, list):
+            supported_environments = []
+
+        lines = [
+            "\n\nAUTOMATED EXECUTION EVIDENCE",
+            (
+                "Overall execution status: "
+                f"{getattr(execution_result, 'status', 'UNKNOWN')}"
+            ),
+        ]
+
+        # Python / pytest evidence.
+        python_result = environment_results.get("python")
+
+        if isinstance(python_result, dict):
+            lines.append("")
+            lines.append("PYTHON / PYTEST")
+
+            discovered = python_result.get("discovered")
+
+            if discovered is not None:
+                lines.append(
+                    f"Environment discovered: {discovered}"
+                )
+
+            lines.append(
+                f"Execution status: "
+                f"{python_result.get('status', 'NOT_AVAILABLE')}"
+            )
+
+            exit_code = python_result.get("exit_code")
+
+            if exit_code is not None:
+                lines.append(f"Exit code: {exit_code}")
+
+            tests_executed = python_result.get(
+                "tests_executed"
+            )
+
+            if tests_executed is not None:
+                lines.append(
+                    f"Tests executed: {tests_executed}"
+                )
+
+            duration = python_result.get(
+                "duration_seconds"
+            )
+
+            if duration is not None:
+                lines.append(
+                    f"Duration: {cls._format_duration(duration)}"
+                )
+
+            lines.append(
+                "Test files discovered: "
+                f"{cls._safe_count(metadata.get('tests_discovered', 0))}"
+            )
+
+            lines.append(
+                "Test cases reported: "
+                f"{cls._safe_count(metadata.get('test_cases_reported', 0))}"
+            )
+
+            lines.append(
+                "Passed: "
+                f"{cls._safe_count(metadata.get('tests_passed', 0))}"
+            )
+
+            lines.append(
+                "Failed: "
+                f"{cls._safe_count(metadata.get('tests_failed', 0))}"
+            )
+
+            lines.append(
+                "Skipped: "
+                f"{cls._safe_count(metadata.get('tests_skipped', 0))}"
+            )
+
+            lines.append(
+                "Collection errors: "
+                f"{cls._safe_count(metadata.get('collection_errors', 0))}"
+            )
+
+        elif "python" in supported_environments:
+            lines.extend([
+                "",
+                "PYTHON / PYTEST",
+                "Environment was identified, but separate execution "
+                "details were not available.",
+            ])
+
+        # Node.js / npm evidence.
+        node_result = environment_results.get("node")
+
+        if isinstance(node_result, dict):
+            lines.append("")
+            lines.append("NODE.JS / NPM")
+
+            discovered = node_result.get("discovered")
+
+            if discovered is not None:
+                lines.append(
+                    f"Environment discovered: {discovered}"
+                )
+
+            lines.append(
+                f"Execution status: "
+                f"{node_result.get('status', 'NOT_AVAILABLE')}"
+            )
+
+            exit_code = node_result.get("exit_code")
+
+            if exit_code is not None:
+                lines.append(f"Exit code: {exit_code}")
+
+            tests_executed = node_result.get(
+                "tests_executed"
+            )
+
+            if tests_executed is not None:
+                lines.append(
+                    f"npm test command executed: {tests_executed}"
+                )
+
+            duration = node_result.get(
+                "duration_seconds"
+            )
+
+            if duration is not None:
+                lines.append(
+                    f"Duration: {cls._format_duration(duration)}"
+                )
+
+            lines.append(
+                "Individual Node.js test-case count: "
+                "NOT_REPORTED"
+            )
+
+            lines.append(
+                "A successful npm test command indicates that "
+                "the command completed successfully. It does not "
+                "establish an individual test-case or assertion count."
+            )
+
+        elif "node" in supported_environments:
+            lines.extend([
+                "",
+                "NODE.JS / NPM",
+                "Environment was identified, but separate execution "
+                "details were not available.",
+            ])
+
+        if not environment_results:
+            lines.extend([
+                "",
+                "Environment-specific execution details "
+                "were not available in the execution metadata.",
+            ])
+
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _safe_count(value) -> int:
+        """Convert a count into a nonnegative integer safely."""
+
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _format_duration(value) -> str:
+        """Format a nonnegative execution duration."""
+
+        try:
+            duration = float(value)
+
+            if duration < 0:
+                return "NOT_AVAILABLE"
+
+            return f"{duration:.2f} seconds"
+
+        except (TypeError, ValueError):
+            return "NOT_AVAILABLE"
 
     # -----------------------------------------------------
     # WORKSPACE PATH
@@ -641,20 +883,42 @@ Review for:
 - Missing validation.
 - Reliability and maintainability concerns.
 
-Rules:
-1. Do not invent files, functions, or implementation details.
-2. Do not claim that tests were executed.
-3. Do not claim that an application was run.
-4. Distinguish confirmed defects from potential risks.
-5. Reference a file path when identifying a finding.
-6. Include a line number only when it can be determined
+EVIDENCE REQUIREMENTS:
+
+1. Use only code and configuration actually supplied in this review.
+2. Never assume that a function, validation rule, test, assertion,
+   exception handler, or feature exists unless it is visible
+   in the supplied evidence.
+3. Before reporting a finding, identify the exact code expression,
+   behavior, or configuration that supports it.
+4. Explain why the cited code creates the reported risk.
+5. Do not describe recommended behavior as existing behavior.
+6. Do not claim that input validation, error handling, or tests
+   are implemented merely because they would be appropriate.
+7. Do not invent test results, execution results, or application behavior.
+8. If a finding depends on an assumption about omitted code,
+   describe it as a potential risk rather than a confirmed defect.
+9. If there is insufficient evidence to support a finding,
+   do not report it as a confirmed defect.
+10. Do not invent files, functions, dependencies, or implementation details.
+
+REVIEW RULES:
+
+1. Distinguish confirmed defects from potential risks.
+2. Reference a file path when identifying a finding.
+3. Include a line number only when it can be determined
    from the supplied file content.
-7. Do not report stylistic preferences as defects.
-8. Do not automatically approve the implementation.
-9. Account for workspace discovery limitations.
-10. Do not assume omitted files or directories do not exist.
-11. Do not claim the entire project was reviewed if context
-    was incomplete.
+4. Do not report stylistic preferences as defects.
+5. Do not automatically approve the implementation.
+6. Account for workspace discovery limitations.
+7. Do not assume omitted files or directories do not exist.
+8. Do not claim the entire project was reviewed if context
+   was incomplete.
+9. Do not claim that tests were executed.
+10. Do not claim that an application was run.
+11. Keep findings specific, factual, and proportional to the evidence.
+12. Recommendations must be clearly described as recommendations,
+    not as existing implementation behavior.
 
 Return exactly one JSON object.
 
@@ -666,7 +930,7 @@ Required format:
       "severity": "CRITICAL | HIGH | MEDIUM | LOW | INFO",
       "category": "security | correctness | reliability | performance | maintainability | configuration",
       "title": "Short finding title",
-      "description": "Evidence-based explanation",
+      "description": "Evidence-based explanation identifying the relevant code",
       "file_path": "relative/path/to/file",
       "line_number": null,
       "recommendation": "Specific corrective recommendation"
@@ -688,6 +952,10 @@ PROJECT FILES:
 {project_context}
 
 Perform the static review using only the supplied evidence.
+
+For every finding, verify that the described behavior is actually
+supported by the supplied code. Do not infer that a recommended
+validation rule or test already exists.
 
 If workspace limitations prevent a reliable conclusion,
 state that uncertainty in the summary.

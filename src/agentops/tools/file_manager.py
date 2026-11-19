@@ -48,7 +48,6 @@ class WorkspaceManager:
         "orchestrator": {"list", "read", "write", "mkdir"},
     }
 
-    # Directories that agents cannot access or create.
     PROTECTED_DIRECTORIES = {
         ".git",
         ".ssh",
@@ -57,7 +56,6 @@ class WorkspaceManager:
         ".gnupg",
     }
 
-    # Filenames that may contain credentials or secrets.
     PROTECTED_FILENAMES = {
         "credentials",
         "secrets",
@@ -97,7 +95,6 @@ class WorkspaceManager:
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
-        # In-memory audit history for this application session.
         self.audit_events: list[dict[str, Any]] = []
 
     def _validate_task_id(self, task_id: str) -> str:
@@ -166,7 +163,6 @@ class WorkspaceManager:
                     "Invalid or traversing path components."
                 )
 
-        # Reject Windows drive-style paths.
         if len(parts[0]) >= 2 and parts[0][1] == ":":
             raise WorkspaceError(
                 "Drive-style paths are not allowed."
@@ -184,7 +180,6 @@ class WorkspaceManager:
 
         filename = normalized_parts[-1]
 
-        # Protect all environment files, including .env.local.
         if filename == ".env" or filename.startswith(".env."):
             raise WorkspaceError(
                 "Environment files are protected."
@@ -353,7 +348,6 @@ class WorkspaceManager:
                 self._get_workspace(task_id)
             ).as_posix()
 
-            # Never expose protected entries in directory listings.
             try:
                 self._validate_relative_path(item_relative_path)
             except WorkspaceError:
@@ -453,6 +447,8 @@ class WorkspaceManager:
 
         Writes are atomic: a temporary file is written first,
         then moved into place.
+
+        Files are made readable by the non-root Docker QA user.
         """
 
         self._authorize(agent, "write")
@@ -496,6 +492,10 @@ class WorkspaceManager:
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
 
+            # NamedTemporaryFile defaults to restrictive 0600.
+            # Set readable permissions before atomic replacement.
+            temporary_path.chmod(0o644)
+
             # Recheck immediately before replacing the destination.
             if target.is_symlink():
                 raise WorkspaceError(
@@ -523,7 +523,7 @@ class WorkspaceManager:
         self,
         task_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return audit events, optionally filtered by task ID."""
+        """Return operation history, optionally filtered by task ID."""
 
         if task_id is None:
             return list(self.audit_events)

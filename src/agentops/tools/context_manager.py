@@ -1,3 +1,4 @@
+
 """
 AgentOps - Project Context Manager
 
@@ -22,10 +23,18 @@ from typing import Any
 
 
 @dataclass
+class SelectedContextFile:
+    """A selected project file with attribute-based access."""
+
+    path: str
+    content: str
+
+
+@dataclass
 class ProjectContext:
     """Selected project context and its inspection metadata."""
 
-    selected_files: list[dict[str, str]]
+    selected_files: list[dict[str, str] | SelectedContextFile]
     omitted_files: list[str]
     total_characters: int
 
@@ -261,6 +270,7 @@ class ProjectContextManager:
 
         Returns:
             ProjectContext containing selected and omitted files.
+            Selected files retain the original dictionary interface.
         """
 
         question_keywords = self._question_keywords(query)
@@ -362,4 +372,43 @@ class ProjectContextManager:
             selected_files=selected_files,
             omitted_files=omitted_files,
             total_characters=total_characters,
+        )
+
+    def select_context(
+        self,
+        task: str,
+        files: list[dict[str, Any]],
+    ) -> ProjectContext:
+        """
+        Select project context using the interface expected by agents.
+
+        This adapter preserves the existing selection algorithm while
+        returning selected files that support attribute-based access.
+
+        Args:
+            task: The agent's task or analysis request.
+            files: Dictionaries containing path and content.
+
+        Returns:
+            ProjectContext with SelectedContextFile objects and the
+            original omission and character-count metadata.
+        """
+
+        context = self.select_files(
+            files=files,
+            query=task,
+        )
+
+        selected_files = [
+            SelectedContextFile(
+                path=file_info["path"],
+                content=file_info["content"],
+            )
+            for file_info in context.selected_files
+        ]
+
+        return ProjectContext(
+            selected_files=selected_files,
+            omitted_files=context.omitted_files,
+            total_characters=context.total_characters,
         )

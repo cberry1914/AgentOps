@@ -37,7 +37,7 @@ class DeveloperAgent:
     """AI agent responsible for controlled software development."""
 
     MAX_WORKSPACE_FILES = 30
-    MAX_WORKSPACE_CONTEXT_CHARS = 80_000
+    MAX_WORKSPACE_CONTEXT_CHARS = 24_000
     MAX_DIRECTORY_DEPTH = 8
     MAX_FILE_CHANGES = 20
     MAX_FILE_BYTES = 1_000_000
@@ -83,6 +83,8 @@ class DeveloperAgent:
         self.llm = ChatOllama(
             model=model_name,
             temperature=temperature,
+            format="json",
+            num_ctx=16384,
         )
 
         self.system_prompt = """

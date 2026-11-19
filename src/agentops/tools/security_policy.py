@@ -8,7 +8,7 @@ Responsibilities:
 - Combine static and AI-generated security findings.
 - Apply consistent severity-based decisions.
 - Identify incomplete security reviews.
-- Require human review before security approval.
+- Support automated approval and optional human review.
 - Preserve review limitations and execution metadata.
 
 The policy engine does not execute code or attempt to
@@ -39,6 +39,7 @@ class SecurityPolicyEngine:
         summary: str = "",
         status: str = "COMPLETED",
         metadata: Optional[dict[str, Any]] = None,
+        require_human_approval: bool = False,
     ) -> SecurityReview:
         """
         Evaluate a security review.
@@ -49,13 +50,16 @@ class SecurityPolicyEngine:
             At least one CRITICAL or HIGH finding exists.
 
         NEEDS_REVIEW:
-            Findings exist, or the review requires human approval.
+            The review is incomplete, partial, lacks completed
+            static analysis, or explicitly requires human approval.
 
         NEEDS_INFO:
             No meaningful review could be completed.
 
         PASS:
-            Not issued automatically. Human approval is required.
+            Static analysis completed, the scan completed,
+            and no CRITICAL or HIGH findings were identified,
+            unless human approval is required.
         """
 
         findings = list(findings or [])
@@ -102,15 +106,30 @@ class SecurityPolicyEngine:
             "INFO",
         )
 
-        requires_human_review = True
-
         decision = self._determine_decision(
             findings=findings,
             files_scanned=files_scanned,
             static_analysis_completed=static_analysis_completed,
             ai_review_completed=ai_review_completed,
             status=status,
+            require_human_approval=require_human_approval,
         )
+
+        requires_human_review = (
+            require_human_approval
+            and decision == "NEEDS_REVIEW"
+        )
+
+        if decision == "NEEDS_REVIEW":
+            limitations.append(
+                "The security review requires additional human assessment."
+            )
+
+        elif decision == "NEEDS_INFO":
+            limitations.append(
+                "Insufficient completed security review evidence "
+                "is available."
+            )
 
         review_summary = self._build_summary(
             decision=decision,
@@ -139,7 +158,9 @@ class SecurityPolicyEngine:
             "low_findings": low_count,
             "informational_findings": info_count,
             "human_approval_required": requires_human_review,
-            "automated_approval_permitted": False,
+            "automated_approval_permitted": (
+                decision == "PASS"
+            ),
         }
 
         return SecurityReview(
@@ -152,7 +173,7 @@ class SecurityPolicyEngine:
             static_analysis_completed=static_analysis_completed,
             ai_review_completed=ai_review_completed,
             requires_human_review=requires_human_review,
-            limitations=limitations,
+            limitations=self._unique_strings(limitations),
             metadata=review_metadata,
         )
 
@@ -163,6 +184,7 @@ class SecurityPolicyEngine:
         static_analysis_completed: bool,
         ai_review_completed: bool,
         status: str,
+        require_human_approval: bool = False,
     ) -> str:
         """Determine the security decision from available evidence."""
 
@@ -170,7 +192,7 @@ class SecurityPolicyEngine:
             return "NEEDS_INFO"
 
         critical_or_high = any(
-            finding.severity in {"CRITICAL", "HIGH"}
+            finding.severity.upper() in {"CRITICAL", "HIGH"}
             for finding in findings
         )
 
@@ -186,13 +208,18 @@ class SecurityPolicyEngine:
         if status == "PARTIAL":
             return "NEEDS_REVIEW"
 
-        if findings:
+        if status != "COMPLETED":
             return "NEEDS_REVIEW"
 
-        # A clean automated scan is not equivalent to a
-        # verified secure application. Human approval remains
-        # mandatory, so the engine never issues PASS.
-        return "NEEDS_REVIEW"
+        # AI review alone cannot authorize PASS.
+        # The SecurityReview model requires completed static analysis.
+        if not static_analysis_completed:
+            return "NEEDS_REVIEW"
+
+        if require_human_approval:
+            return "NEEDS_REVIEW"
+
+        return "PASS"
 
     def _build_summary(
         self,
@@ -248,9 +275,15 @@ class SecurityPolicyEngine:
                 "available to make a security determination."
             )
 
+        elif decision == "NEEDS_REVIEW":
+            lines.append(
+                "Additional review is required before security approval."
+            )
+
         else:
             lines.append(
-                "Human review is required before security approval."
+                "Automated security approval granted. "
+                "No critical or high-severity findings were identified."
             )
 
         return "\n".join(lines)
@@ -265,7 +298,7 @@ class SecurityPolicyEngine:
         return sum(
             1
             for finding in findings
-            if finding.severity == severity
+            if finding.severity.upper() == severity
         )
 
     def _unique_strings(

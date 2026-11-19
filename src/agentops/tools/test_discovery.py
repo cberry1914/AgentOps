@@ -10,6 +10,8 @@ Current support:
 - *_test.py files.
 - Conventional tests/ directories.
 - Conventional pytest configuration files.
+- Node.js projects with a package.json test script.
+- Node.js package manifests at the project root or frontend/.
 
 Security:
 - Read-only filesystem discovery.
@@ -22,6 +24,8 @@ Security:
 This component identifies candidate tests. It does not
 guarantee that discovered tests are valid or executable.
 """
+
+import json
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +40,7 @@ class TestDiscoveryResult:
     test_files: list[str] = field(default_factory=list)
     configuration_files: list[str] = field(default_factory=list)
     test_directories: list[str] = field(default_factory=list)
+    node_project_directories: list[str] = field(default_factory=list)
     discovered_test_count: int = 0
     discovery_complete: bool = True
     warnings: list[str] = field(default_factory=list)
@@ -43,7 +48,10 @@ class TestDiscoveryResult:
 
     @property
     def tests_found(self) -> bool:
-        return self.discovered_test_count > 0
+        return (
+            self.discovered_test_count > 0
+            or bool(self.node_project_directories)
+        )
 
     def to_dict(self) -> dict:
         """Convert discovery results into a serializable dictionary."""
@@ -53,6 +61,7 @@ class TestDiscoveryResult:
             "test_files": self.test_files,
             "configuration_files": self.configuration_files,
             "test_directories": self.test_directories,
+            "node_project_directories": self.node_project_directories,
             "discovered_test_count": self.discovered_test_count,
             "discovery_complete": self.discovery_complete,
             "warnings": self.warnings,
@@ -91,6 +100,11 @@ class TestDiscovery:
         "pyproject.toml",
         "setup.cfg",
     }
+
+    NODE_PACKAGE_LOCATIONS = (
+        Path("package.json"),
+        Path("frontend") / "package.json",
+    )
 
     def _validate_workspace(
         self,
@@ -141,15 +155,124 @@ class TestDiscovery:
             and cancel_event.is_set()
         )
 
+    def _discover_node_projects(
+        self,
+        workspace: Path,
+        result: TestDiscoveryResult,
+        cancel_event=None,
+    ) -> None:
+        """
+        Identify supported Node.js test projects.
+
+        Only the project root and frontend/ are supported.
+        A project is recognized when package.json contains
+        a nonempty scripts.test command.
+
+        This method reads manifests only. It does not execute
+        package scripts or install dependencies.
+        """
+
+        discovered_directories = []
+
+        for relative_manifest in self.NODE_PACKAGE_LOCATIONS:
+
+            if self._is_cancelled(cancel_event):
+                result.discovery_complete = False
+                result.warnings.append(
+                    "Test discovery was cancelled."
+                )
+                break
+
+            manifest = workspace / relative_manifest
+
+            try:
+                # Do not follow symbolic links.
+                if manifest.is_symlink():
+                    result.warnings.append(
+                        f"Skipped symbolic-link Node.js manifest: "
+                        f"{relative_manifest}"
+                    )
+                    continue
+
+                if not manifest.exists():
+                    continue
+
+                if not manifest.is_file():
+                    continue
+
+                with manifest.open(
+                    "r",
+                    encoding="utf-8",
+                ) as file:
+                    package_data = json.load(file)
+
+                if not isinstance(package_data, dict):
+                    result.discovery_complete = False
+                    result.warnings.append(
+                        f"Invalid Node.js package manifest: "
+                        f"{relative_manifest} must contain a JSON object."
+                    )
+                    continue
+
+                scripts = package_data.get("scripts", {})
+
+                if not isinstance(scripts, dict):
+                    result.discovery_complete = False
+                    result.warnings.append(
+                        f"Invalid scripts section in "
+                        f"{relative_manifest}."
+                    )
+                    continue
+
+                test_script = scripts.get("test")
+
+                if not isinstance(test_script, str) or not test_script.strip():
+                    result.warnings.append(
+                        f"No usable scripts.test command found in "
+                        f"{relative_manifest}."
+                    )
+                    continue
+
+                project_directory = str(
+                    relative_manifest.parent
+                )
+
+                if project_directory == ".":
+                    project_directory = "."
+
+                discovered_directories.append(project_directory)
+
+            except json.JSONDecodeError as exc:
+                result.discovery_complete = False
+                result.warnings.append(
+                    f"Unable to parse Node.js manifest "
+                    f"{relative_manifest}: {exc}"
+                )
+
+            except (OSError, UnicodeError) as exc:
+                result.discovery_complete = False
+                result.warnings.append(
+                    f"Unable to read Node.js manifest "
+                    f"{relative_manifest}: {exc}"
+                )
+
+        result.node_project_directories = sorted(
+            set(discovered_directories)
+        )
+
+        if result.node_project_directories:
+            result.supported_frameworks.append("npm")
+
     def discover(
         self,
         workspace_path: str | Path,
         cancel_event=None,
     ) -> TestDiscoveryResult:
         """
-        Discover candidate pytest files and configuration.
+        Discover candidate Python and Node.js tests.
 
-        The scan is bounded by file count and directory depth.
+        The filesystem scan is bounded by file count and
+        directory depth.
 
         Filesystem errors are recorded as warnings so that one
         inaccessible entry does not terminate the entire scan.
@@ -300,10 +423,16 @@ class TestDiscovery:
         if result.discovered_test_count:
             result.supported_frameworks.append("pytest")
 
-        elif result.discovery_complete:
+        self._discover_node_projects(
+            workspace=workspace,
+            result=result,
+            cancel_event=cancel_event,
+        )
+
+        if not result.tests_found and result.discovery_complete:
             result.warnings.append(
-                "No conventional Python pytest test files "
-                "were discovered."
+                "No supported Python pytest tests or Node.js "
+                "npm test scripts were discovered."
             )
 
         return result

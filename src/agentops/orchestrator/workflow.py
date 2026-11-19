@@ -44,6 +44,7 @@ from agentops.tools.cancellation import (
     check_cancelled,
 )
 from agentops.tools.file_manager import WorkspaceManager
+from agentops.tools.project_importer import ProjectImporter
 
 
 class ProjectManager:
@@ -56,6 +57,9 @@ class ProjectManager:
     ):
         self.workspace_manager = workspace_manager or WorkspaceManager()
         self.max_retries = max(0, int(max_retries))
+        self.project_importer = ProjectImporter(
+            workspace_manager=self.workspace_manager
+        )
 
         # All agents must use the same workspace manager.
         self.developer = DeveloperAgent(
@@ -783,25 +787,30 @@ Correction requirements:
         state: AgentState,
         cancel_event: Optional[Event] = None,
     ) -> Dict[str, Any]:
-        """Determine the final workflow status and result."""
+        """Determine whether the automated workflow can be approved."""
 
         # Cancellation may arrive after Architect finishes but
         # before LangGraph begins the finalization node.
         check_cancelled(cancel_event)
 
-        qa_decision = state.get(
-            "qa_decision",
-            "NEEDS_REVIEW",
-        )
+        qa_decision = str(
+            state.get("qa_decision", "NEEDS_REVIEW")
+        ).upper()
 
-        security_decision = state.get(
-            "security_decision",
-            "NEEDS_REVIEW",
-        )
+        security_decision = str(
+            state.get("security_decision", "NEEDS_REVIEW")
+        ).upper()
 
-        security_status = state.get(
-            "security_status",
-            "NOT_RUN",
+        security_status = str(
+            state.get("security_status", "NOT_RUN")
+        ).upper()
+
+        architecture_status = str(
+            state.get("architecture_status", "NOT_RUN")
+        ).upper()
+
+        security_review_completed = bool(
+            state.get("security_review_completed", False)
         )
 
         if state.get("error_message"):
@@ -816,10 +825,25 @@ Correction requirements:
         ):
             workflow_status = "REJECTED"
 
+        elif (
+            qa_decision == "PASS"
+            and security_decision == "PASS"
+            and security_status == "COMPLETED"
+            and security_review_completed
+            and architecture_status == "COMPLETED"
+        ):
+            workflow_status = "COMPLETED"
+
         else:
             workflow_status = "NEEDS_REVIEW"
 
-        if workflow_status == "REJECTED":
+        if workflow_status == "COMPLETED":
+            final_result = (
+                "The workflow passed automated QA, Security, and "
+                "Architecture checks. Automated approval was granted."
+            )
+
+        elif workflow_status == "REJECTED":
             final_result = (
                 "The implementation was rejected because QA or "
                 "Security identified blocking findings."
@@ -835,23 +859,40 @@ Correction requirements:
             )
 
         else:
-            review_note = ""
+            missing_conditions = []
+
+            if qa_decision != "PASS":
+                missing_conditions.append(
+                    f"QA decision is {qa_decision}"
+                )
+
+            if security_decision != "PASS":
+                missing_conditions.append(
+                    f"Security decision is {security_decision}"
+                )
 
             if (
                 security_status != "COMPLETED"
-                or not state.get(
-                    "security_review_completed",
-                    False,
-                )
+                or not security_review_completed
             ):
-                review_note = (
-                    " The security review was incomplete or partial."
+                missing_conditions.append(
+                    "Security review is incomplete"
                 )
 
+            if architecture_status != "COMPLETED":
+                missing_conditions.append(
+                    "Architecture analysis is incomplete"
+                )
+
+            details = "; ".join(missing_conditions)
+
             final_result = (
-                "The workflow completed its automated stages. "
-                "Human review is required before approval."
-                f"{review_note}"
+                "Automated approval was not granted. "
+                "The workflow requires review"
+                f": {details}."
+                if details
+                else "Automated approval was not granted. "
+                "Human review is required."
             )
 
         completed_stages = list(
@@ -989,6 +1030,7 @@ Correction requirements:
         self,
         task: str,
         task_id: Optional[str] = None,
+        project_directory: Optional[str | Path] = None,
         cancel_event: Optional[Event] = None,
         progress_callback=None,
     ) -> AgentState:
@@ -1043,7 +1085,31 @@ Correction requirements:
                 )
             )
 
+            # Retain the initialized workspace state before importing.
+            # If import fails, the error handler can still report the
+            # correct task ID and workspace location.
             self._publish_progress(initial_state)
+
+            if project_directory is not None:
+                import_result = self.project_importer.import_project(
+                    source_directory=project_directory,
+                    task_id=task_id,
+                )
+
+                initial_state["execution_history"] = (
+                    self._record_activity(
+                        initial_state,
+                        "orchestrator",
+                        "Project imported",
+                        (
+                            f"Imported {import_result.files_imported} "
+                            f"files ({import_result.total_bytes} bytes) "
+                            f"from {import_result.source_directory}."
+                        ),
+                    )
+                )
+
+                self._publish_progress(initial_state)
 
             workflow = self._build_graph(
                 cancel_event=cancel_event

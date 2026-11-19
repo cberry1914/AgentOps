@@ -100,6 +100,7 @@ class SecurityAgent:
         self.llm = ChatOllama(
             model=model_name,
             temperature=temperature,
+            num_ctx=16384,
         )
 
         self.workspace_manager = (

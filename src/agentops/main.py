@@ -205,9 +205,12 @@ def run_qa():
     """
     Run the QA Agent independently.
 
-    The submitted implementation is first written into the
-    task workspace. QA then reviews the workspace as its
-    source of truth.
+    QA supports two submission methods:
+    1. Paste a single implementation file.
+    2. Import an approved project directory.
+
+    The workspace remains the source of truth for QA review
+    and automated test discovery.
     """
 
     task = get_multiline_input(
@@ -221,37 +224,105 @@ def run_qa():
         print("Please enter the original task.")
         return
 
-    implementation = get_multiline_input(
-        "\nPaste the implementation for QA review:\n"
-    )
+    print("\n========== QA Submission ==========")
+    print("1. Paste a single implementation")
+    print("2. Import a project directory")
+    print("===================================")
 
-    if implementation == "BACK":
-        return
+    submission_choice = input(
+        "Select a submission method: "
+    ).strip()
 
-    if not implementation:
-        print("Please provide an implementation.")
+    if submission_choice not in {"1", "2"}:
+        print("Returning to main menu.")
         return
 
     try:
         task_id, workspace_manager = create_task_workspace()
 
-        # Store the submitted implementation in the workspace
-        # before invoking QA. This makes the workspace the
-        # authoritative source for the review.
-        workspace_manager.write_file(
-            task_id=task_id,
-            relative_path="submitted_implementation.py",
-            content=implementation,
-            agent="orchestrator",
-        )
+        implementation = ""
+        imported_files = None
+        submitted_file = None
+
+        if submission_choice == "1":
+            implementation = get_multiline_input(
+                "\nPaste the implementation for QA review:\n"
+            )
+
+            if implementation == "BACK":
+                return
+
+            if not implementation:
+                print("Please provide an implementation.")
+                return
+
+            submitted_file = "submitted_implementation.py"
+
+            workspace_manager.write_file(
+                task_id=task_id,
+                relative_path=submitted_file,
+                content=implementation,
+                agent="orchestrator",
+            )
+
+        elif submission_choice == "2":
+            source_directory = input(
+                "\nEnter the full path to the project directory:\n"
+            ).strip()
+
+            if not source_directory:
+                print("A project directory is required.")
+                return
+
+            print("\nSelected project directory:")
+            print(source_directory)
+
+            confirmation = input(
+                "\nType IMPORT to confirm importing this project: "
+            ).strip()
+
+            if confirmation != "IMPORT":
+                print("Project import cancelled.")
+                return
+
+            importer = ProjectImporter(
+                workspace_manager=workspace_manager
+            )
+
+            print("\nImporting approved project files...")
+
+            import_result = importer.import_project(
+                source_directory=source_directory,
+                task_id=task_id,
+            )
+
+            imported_files = import_result.files_imported
+
+            if imported_files == 0:
+                print(
+                    "\nNo eligible project files were imported. "
+                    "QA review cannot proceed."
+                )
+                return
 
         agent = QAAgent(
             workspace_manager=workspace_manager
         )
 
-        print("\nQA Agent is reviewing the implementation...")
+        print("\nQA Agent is reviewing the workspace...")
         print(f"Task ID: {task_id}")
-        print("Submitted file: submitted_implementation.py\n")
+
+        if submitted_file:
+            print(f"Submitted file: {submitted_file}")
+
+        if imported_files is not None:
+            print(f"Project files imported: {imported_files}")
+
+        print(
+            "\nThe workspace is the source of truth for "
+            "static review and automated test discovery."
+        )
+        print("This may take a few minutes.\n")
 
         result = agent.execute(
             task=task,
@@ -259,7 +330,9 @@ def run_qa():
             implementation=implementation,
         )
 
-        print("\n" + str(result))
+        print("\n========== QA REPORT ==========\n")
+        print(result)
+        print("\n===============================")
 
     except Exception as error:
         print(f"\nQA Agent error: {error}")
@@ -471,7 +544,7 @@ def display_execution_history(history: list) -> None:
 # ---------------------------------------------------------
 
 def run_full_workflow():
-    """Run the complete workflow with live progress and cancellation."""
+    """Run the complete workflow with project import, live progress, and cancellation."""
 
     task = get_multiline_input(
         "\nAgentOps Workflow - Enter your development task:\n"
@@ -484,7 +557,27 @@ def run_full_workflow():
         print("Please enter a development task.")
         return
 
+    source_directory = input(
+        "\nEnter the full path to the existing project directory:\n"
+    ).strip()
+
+    if not source_directory:
+        print("A project directory is required.")
+        return
+
+    print("\nSelected project directory:")
+    print(source_directory)
+
+    confirmation = input(
+        "\nType IMPORT to approve importing this project into AgentOps: "
+    ).strip()
+
+    if confirmation != "IMPORT":
+        print("Project import cancelled.")
+        return
+
     print("\n========== AgentOps Multi-Agent Workflow ==========")
+    print("Project import: Approved")
     print("Agents:")
     print("  1. Developer - Implements the requested changes")
     print("  2. QA - Reviews implementation and runs tests")
@@ -515,6 +608,7 @@ def run_full_workflow():
                 result_container["result"] = workflow.run(
                     task=task,
                     task_id=task_id,
+                    project_directory=source_directory,
                     cancel_event=cancel_event,
                     progress_callback=progress_queue.put,
                 )

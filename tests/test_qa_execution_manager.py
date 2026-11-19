@@ -157,7 +157,7 @@ def test_record_result_stores_execution_history(dependencies):
 
     history.record.assert_called_once_with(
         task_id="task-1",
-        result=result,
+        execution_result=result,
     )
     assert returned is result
 
